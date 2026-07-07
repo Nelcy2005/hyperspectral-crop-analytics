@@ -12,7 +12,7 @@ A production-grade, band-agnostic 3D-CNN architecture for precision agriculture 
 ##Any FAQ Reach out => nelcyvincent55@gmail.com
 
 ## 📦 Local Installation
-```bash
+
 # Clone the repository
 git clone [https://github.com/Nelcy2005/hyperspectral-crop-analytics.git](https://github.com/Nelcy2005/hyperspectral-crop-analytics.git)
 cd hyperspectral-crop-analytics
@@ -23,6 +23,5 @@ pip install -r requirements.txt
 # Launch application workspace
 python -m streamlit run app.py
 
-##Check Out my Live Web App Deployment => https://hyperspectral-crop-analytics.streamlit.app/
-
-##Any FAQ Reach out => nelcyvincent55@gmail.com
+##Check Out my Live Web App Deployment => [(https://hyperspectral-crop-analytics.streamlit.app/)]
+#Any FAQ Reach out => (nelcyvincent55@gmail.com)
