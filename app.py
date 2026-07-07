@@ -1,39 +1,9 @@
 import streamlit as st
-from streamlit_google_auth import Authenticate
 import numpy as np
 import scipy.io as sio
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
-
-
-# 1. Initialize the Google Auth Gateway (Credentials generated in Google Cloud Console)
-authenticator = Authenticate(
-    secret_credentials_path='google_credentials.json',
-    cookie_name='hyperspectral_user_session',
-    cookie_key='your_secure_cookie_key',
-    cookie_expiry_days=1
-)
-
-# 2. Check if user is logged in
-authenticator.check_authentification()
-
-if not st.session_state['connected']:
-    # Render Login Button
-    st.title("🔒 Pipeline Access Control")
-    authenticator.login()
-    st.stop()
-else:
-    # 3. Track their login data instantly!
-    user_email = st.session_state['user_info'].get('email')
-    user_name = st.session_state['user_info'].get('name')
-    
-    # Sidebar welcome widget
-    st.sidebar.write(f"👤 Active Operator: **{user_name}** ({user_email})")
-    
-    if st.sidebar.button("Log Out"):
-        authenticator.logout()
-        st.stop()
 
 
 # --- Page Layout Configuration ---
