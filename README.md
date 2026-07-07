@@ -7,6 +7,10 @@ A production-grade, band-agnostic 3D-CNN architecture for precision agriculture 
 * **Hugging Face Cloud Stream:** Serializes dense multidimensional arrays into highly optimized Apache Parquet tabular formats for secure cloud pipeline integration.
 * **Live Streamlit Dashboard:** An interactive web portal built for real-time model inference testing on local low-overhead specifications.
 
+##Check Out my Live Web App Deployment => https://hyperspectral-crop-analytics.streamlit.app/
+
+##Any FAQ Reach out => nelcyvincent55@gmail.com
+
 ## 📦 Local Installation
 ```bash
 # Clone the repository
@@ -19,6 +23,6 @@ pip install -r requirements.txt
 # Launch application workspace
 python -m streamlit run app.py
 
-Check Out my Live Web App Deployment => https://hyperspectral-crop-analytics.streamlit.app/
+##Check Out my Live Web App Deployment => https://hyperspectral-crop-analytics.streamlit.app/
 
-Any FAQ Reach out => nelcyvincent55@gmail.com
+##Any FAQ Reach out => nelcyvincent55@gmail.com
