@@ -127,7 +127,12 @@ if uploaded_file is not None:
                 with col2:
                     st.write("### 🎯 Live Model Prediction Map")
                     fig2, ax2 = plt.subplots(figsize=(5, 5))
-                    ax2.imshow(output_map, cmap='gist_earth')
+                    
+                    # TUNING: Mask out the dominant background so you can actually see the structural classes
+                    tuned_map = np.where(output_map == 1, np.nan, output_map) 
+                    
+                    # Using 'jet' or 'nipy_spectral' helps distinct classes pop out dynamically
+                    ax2.imshow(tuned_map, cmap='nipy_spectral')
                     ax2.axis('off')
                     st.pyplot(fig2)
                     
