@@ -22,6 +22,3 @@ pip install -r requirements.txt
 
 # Launch application workspace
 python -m streamlit run app.py
-
-##Check Out my Live Web App Deployment => [(https://hyperspectral-crop-analytics.streamlit.app/)]
-#Any FAQ Reach out => (nelcyvincent55@gmail.com)
