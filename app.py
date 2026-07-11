@@ -13,31 +13,49 @@ st.title("🛰️ Deep Hyperspectral Crop & Urban Analytics Pipeline")
 st.write("An adaptive feature selection engine and universal 3D-CNN classifier for diverse remote sensing domains.")
 st.markdown("---")
 
-# --- Define the Generic 3D-CNN Architecture ---
+# --- Define the Optimized Dynamic 3D-CNN Architecture ---
 class Hybrid3DCNN(nn.Module):
     def __init__(self, num_classes=16):
         super(Hybrid3DCNN, self).__init__()
-        # Dynamic Feature Pooling: This forces ANY incoming number of bands down to a standard 15-channel structure
-        self.feature_projection = nn.AdaptiveAvgPool3d((15, 5, 5)) 
+        
+        # Pointwise Convolution: Dynamically compresses variable bands down to 15 channels without blurring features
+        self.feature_projection = nn.Conv3d(1, 1, kernel_size=(1, 1, 1)) 
+        
+        # Standard target channels for spectral band processing
+        self.target_bands = 15
+        
         self.conv3d = nn.Conv3d(1, 8, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.relu = nn.ReLU()
-        self.pool = nn.AdaptiveAvgPool3d((5, 2, 2))
+        self.pool = nn.AdaptiveAvgPool3d((self.target_bands, 2, 2))
+        
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(8 * 5 * 2 * 2, 64),
+            nn.Linear(8 * self.target_bands * 2 * 2, 64),
             nn.ReLU(),
             nn.Dropout(0.4),
             nn.Linear(64, num_classes)
         )
         
     def forward(self, x):
-        # Accommodates incoming shapes dynamically: [Batch, 1, Variable_Bands, 5, 5]
-        x = self.feature_projection(x) 
+        # 1. Dynamically adapt the weights of the pointwise convolution to match incoming spectral bands
+        incoming_bands = x.shape[2]
+        if self.feature_projection.kernel_size[0] != incoming_bands:
+            # Re-shape the weights instantly to match the exact input channel size
+            self.feature_projection = nn.Conv3d(1, 1, kernel_size=(incoming_bands, 1, 1), device=x.device)
+            # Fix weights so it performs a clean step-down slice by default
+            nn.init.constant_(self.feature_projection.weight, 1.0 / incoming_bands)
+            
+        # 2. Process through the network pipeline cleanly
+        x = self.relu(self.feature_projection(x)) # Dynamic projection layer
+        
+        # Change dimensions to fit conv3d requirements: [Batch, 1, 15, 5, 5]
+        x = torch.nn.functional.interpolate(x, size=(self.target_bands, 5, 5), mode='trilinear', align_corners=False)
+        
         x = self.relu(self.conv3d(x))
         x = self.pool(x)
         x = self.fc(x)
         return x
-
+        
 # --- Cache Core Weights ---
 @st.cache_resource
 def load_universal_engine():
