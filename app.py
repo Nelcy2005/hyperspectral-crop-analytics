@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
-
 # --- Page Layout Configuration ---
 st.set_page_config(page_title="Universal Hyperspectral Pipeline", layout="wide", page_icon="🛰️")
 
@@ -98,22 +97,43 @@ if uploaded_file is not None:
                 
                 output_map = np.zeros((H, W))
                 
-                # 3. Execute Real-Time Pixel-by-Pixel Inference
+                # 3. Optimized Batch-by-Batch Inference to completely prevent cloud memory crashes
+                batch_size = 512  
+                patches_accumulator = []
+                coords_accumulator = []
+                
                 with torch.no_grad():
                     for r in range(H):
-                        row_patches = []
                         for c in range(W):
                             patch = X_padded[r:r + window_size, c:c + window_size, :]
                             patch = patch.transpose(2, 0, 1) # Format to channel-first [Bands, Height, Width]
-                            row_patches.append(patch)
-                        
-                        # Accumulate row into a singular batch token array
-                        row_array = np.expand_dims(np.array(row_patches), axis=1)
+                            patches_accumulator.append(patch)
+                            coords_accumulator.append((r, c))
+                            
+                            # Execute when full batch size token is met
+                            if len(patches_accumulator) == batch_size:
+                                row_array = np.array(patches_accumulator)
+                                row_array = np.expand_dims(row_array, axis=1)
+                                row_tensor = torch.tensor(row_array, dtype=torch.float32)
+                                
+                                predictions = model(row_tensor)
+                                pred_classes = torch.argmax(predictions, dim=1).numpy() + 1
+                                
+                                for i, (pr, pc) in enumerate(coords_accumulator):
+                                    output_map[pr, pc] = pred_classes[i]
+                                    
+                                patches_accumulator = []
+                                coords_accumulator = []
+                    
+                    # Process leftover pixels boundary segments
+                    if patches_accumulator:
+                        row_array = np.array(patches_accumulator)
+                        row_array = np.expand_dims(row_array, axis=1)
                         row_tensor = torch.tensor(row_array, dtype=torch.float32)
-                        
-                        # Process through the adaptive network brain
                         predictions = model(row_tensor)
-                        output_map[r, :] = torch.argmax(predictions, dim=1).numpy() + 1
+                        pred_classes = torch.argmax(predictions, dim=1).numpy() + 1
+                        for i, (pr, pc) in enumerate(coords_accumulator):
+                            output_map[pr, pc] = pred_classes[i]
                 
                 # --- Plot Output Layouts ---
                 col1, col2 = st.columns(2)
@@ -131,7 +151,7 @@ if uploaded_file is not None:
                     # TUNING: Mask out the dominant background so you can actually see the structural classes
                     tuned_map = np.where(output_map == 1, np.nan, output_map) 
                     
-                    # Using 'jet' or 'nipy_spectral' helps distinct classes pop out dynamically
+                    # Using 'nipy_spectral' helps distinct classes pop out dynamically
                     ax2.imshow(tuned_map, cmap='nipy_spectral')
                     ax2.axis('off')
                     st.pyplot(fig2)
