@@ -117,7 +117,7 @@ if uploaded_file is not None:
                                 row_tensor = torch.tensor(row_array, dtype=torch.float32)
                                 
                                 predictions = model(row_tensor)
-                                pred_classes = torch.argmax(predictions, dim=1).numpy() + 1
+                                pred_classes = torch.argmax(predictions, dim=1).numpy() # REMOVED + 1
                                 
                                 for i, (pr, pc) in enumerate(coords_accumulator):
                                     output_map[pr, pc] = pred_classes[i]
@@ -131,7 +131,7 @@ if uploaded_file is not None:
                         row_array = np.expand_dims(row_array, axis=1)
                         row_tensor = torch.tensor(row_array, dtype=torch.float32)
                         predictions = model(row_tensor)
-                        pred_classes = torch.argmax(predictions, dim=1).numpy() + 1
+                        pred_classes = torch.argmax(predictions, dim=1).numpy() # REMOVED + 1
                         for i, (pr, pc) in enumerate(coords_accumulator):
                             output_map[pr, pc] = pred_classes[i]
                 
@@ -148,8 +148,8 @@ if uploaded_file is not None:
                     st.write("### 🎯 Live Model Prediction Map")
                     fig2, ax2 = plt.subplots(figsize=(5, 5))
                     
-                    # TUNING: Mask out the dominant background so you can actually see the structural classes
-                    tuned_map = np.where(output_map == 1, np.nan, output_map) 
+                    # TUNING: Correctly mask out class 0 (Unclassified Background) as transparent blank space
+                    tuned_map = np.where(output_map == 0, np.nan, output_map) 
                     
                     # Using 'nipy_spectral' helps distinct classes pop out dynamically
                     ax2.imshow(tuned_map, cmap='nipy_spectral')
