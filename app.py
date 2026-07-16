@@ -12,45 +12,43 @@ st.title("🛰️ Deep Hyperspectral Crop & Urban Analytics Pipeline")
 st.write("An adaptive feature selection engine and universal 3D-CNN classifier for diverse remote sensing domains.")
 st.markdown("---")
 
-# --- Define the Optimized Dynamic 3D-CNN Architecture ---
-class Hybrid3DCNN(nn.Module):
+# --- Define the High-Precision Deep 3D-CNN Architecture (Matches Training Engine) ---
+class HighPrecision3DCNN(nn.Module):
     def __init__(self, num_classes=16):
-        super(Hybrid3DCNN, self).__init__()
+        super(HighPrecision3DCNN, self).__init__()
         
-        # Pointwise Convolution: Dynamically compresses variable bands down to 15 channels without blurring features
+        # Pointwise Convolution
         self.feature_projection = nn.Conv3d(1, 1, kernel_size=(1, 1, 1)) 
-        
-        # Standard target channels for spectral band processing
         self.target_bands = 15
         
-        self.conv3d = nn.Conv3d(1, 8, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        # Deeper Feature Extractors matching the training engine
+        self.conv1 = nn.Conv3d(1, 16, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.bn1 = nn.BatchNorm3d(16)
+        
+        self.conv2 = nn.Conv3d(16, 32, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.bn2 = nn.BatchNorm3d(32)
+        
         self.relu = nn.ReLU()
         self.pool = nn.AdaptiveAvgPool3d((self.target_bands, 2, 2))
         
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(8 * self.target_bands * 2 * 2, 64),
+            nn.Linear(32 * self.target_bands * 2 * 2, 256),
             nn.ReLU(),
-            nn.Dropout(0.4),
-            nn.Linear(64, num_classes)
+            nn.Dropout(0.1),
+            nn.Linear(256, num_classes)
         )
         
     def forward(self, x):
-        # 1. Dynamically adapt the weights of the pointwise convolution to match incoming spectral bands
         incoming_bands = x.shape[2]
         if self.feature_projection.kernel_size[0] != incoming_bands:
-            # Re-shape the weights instantly to match the exact input channel size
             self.feature_projection = nn.Conv3d(1, 1, kernel_size=(incoming_bands, 1, 1), device=x.device)
-            # Fix weights so it performs a clean step-down slice by default
             nn.init.constant_(self.feature_projection.weight, 1.0 / incoming_bands)
             
-        # 2. Process through the network pipeline cleanly
-        x = self.relu(self.feature_projection(x)) # Dynamic projection layer
-        
-        # Change dimensions to fit conv3d requirements: [Batch, 1, 15, 5, 5]
+        x = self.relu(self.feature_projection(x))
         x = torch.nn.functional.interpolate(x, size=(self.target_bands, 5, 5), mode='trilinear', align_corners=False)
-        
-        x = self.relu(self.conv3d(x))
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.relu(self.bn2(self.conv2(x)))
         x = self.pool(x)
         x = self.fc(x)
         return x
@@ -58,12 +56,12 @@ class Hybrid3DCNN(nn.Module):
 # --- Cache Core Weights ---
 @st.cache_resource
 def load_universal_engine():
-    model = Hybrid3DCNN(num_classes=16)
+    model = HighPrecision3DCNN(num_classes=16)
     try:
-        model.load_state_dict(torch.load('hyperspectral_model.pth', map_location=torch.device('cpu')), strict=False)
+        model.load_state_dict(torch.load('hyperspectral_model.pth', map_location=torch.device('cpu')), strict=True)
         st.sidebar.success("🛰️ Global Network Weights Active")
     except Exception as e:
-        st.sidebar.info(f"🌱 System Initialized with Base Topology ({e})")
+        st.sidebar.error(f"🌱 Error loading state: {e}")
     model.eval()
     return model
 
@@ -81,7 +79,6 @@ if uploaded_file is not None:
         if possible_keys:
             img_cube = raw_mat[possible_keys[0]]
             
-            # Check if it is a proper 3D array volume
             if len(img_cube.shape) == 3:
                 H, W, C = img_cube.shape
                 st.info(f"🎯 **Detected Map Properties:** {H}x{W} Pixels with **{C} Wavelength Bands**")
@@ -97,7 +94,7 @@ if uploaded_file is not None:
                 
                 output_map = np.zeros((H, W))
                 
-                # 3. Optimized Batch-by-Batch Inference to completely prevent cloud memory crashes
+                # 3. Batch Inference Pipeline
                 batch_size = 512  
                 patches_accumulator = []
                 coords_accumulator = []
@@ -110,14 +107,13 @@ if uploaded_file is not None:
                             patches_accumulator.append(patch)
                             coords_accumulator.append((r, c))
                             
-                            # Execute when full batch size token is met
                             if len(patches_accumulator) == batch_size:
                                 row_array = np.array(patches_accumulator)
                                 row_array = np.expand_dims(row_array, axis=1)
                                 row_tensor = torch.tensor(row_array, dtype=torch.float32)
                                 
                                 predictions = model(row_tensor)
-                                pred_classes = torch.argmax(predictions, dim=1).numpy() # REMOVED + 1
+                                pred_classes = torch.argmax(predictions, dim=1).numpy()
                                 
                                 for i, (pr, pc) in enumerate(coords_accumulator):
                                     output_map[pr, pc] = pred_classes[i]
@@ -125,13 +121,12 @@ if uploaded_file is not None:
                                 patches_accumulator = []
                                 coords_accumulator = []
                     
-                    # Process leftover pixels boundary segments
                     if patches_accumulator:
                         row_array = np.array(patches_accumulator)
                         row_array = np.expand_dims(row_array, axis=1)
                         row_tensor = torch.tensor(row_array, dtype=torch.float32)
                         predictions = model(row_tensor)
-                        pred_classes = torch.argmax(predictions, dim=1).numpy() # REMOVED + 1
+                        pred_classes = torch.argmax(predictions, dim=1).numpy()
                         for i, (pr, pc) in enumerate(coords_accumulator):
                             output_map[pr, pc] = pred_classes[i]
                 
@@ -148,11 +143,8 @@ if uploaded_file is not None:
                     st.write("### 🎯 Live Model Prediction Map")
                     fig2, ax2 = plt.subplots(figsize=(5, 5))
                     
-                    # TUNING: Correctly mask out class 0 (Unclassified Background) as transparent blank space
-                    tuned_map = np.where(output_map == 0, np.nan, output_map) 
-                    
-                    # Using 'nipy_spectral' helps distinct classes pop out dynamically
-                    ax2.imshow(tuned_map, cmap='nipy_spectral')
+                    # Display segmented predictions cleanly using nipy_spectral
+                    ax2.imshow(output_map, cmap='nipy_spectral')
                     ax2.axis('off')
                     st.pyplot(fig2)
                     
