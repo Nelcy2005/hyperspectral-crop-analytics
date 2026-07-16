@@ -4,6 +4,7 @@ import scipy.io as sio
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+from scipy.ndimage import median_filter
 
 # --- Page Layout Configuration ---
 st.set_page_config(page_title="Universal Hyperspectral Pipeline", layout="wide", page_icon="🛰️")
@@ -65,6 +66,11 @@ def load_universal_engine():
     return model
 
 model = load_universal_engine()
+
+# --- Interactive Sidebar Filter Control ---
+st.sidebar.subheader("🎛️ Post-Processing Controls")
+smooth_level = st.sidebar.slider("Spatial Smoothing Filter (Median Window)", min_value=1, max_value=7, value=3, step=2, 
+                                 help="Set to 1 for raw pixel predictions, or 3/5 for smooth spatial maps.")
 
 # --- Dashboard Layout ---
 st.subheader("📊 Live Field Inference Engine")
@@ -129,6 +135,12 @@ if uploaded_file is not None:
                         for i, (pr, pc) in enumerate(coords_accumulator):
                             output_map[pr, pc] = pred_classes[i]
                 
+                # --- Apply Spatial Median Filter for Visual Smoothing ---
+                if smooth_level > 1:
+                    final_map = median_filter(output_map, size=smooth_level)
+                else:
+                    final_map = output_map
+
                 # --- Plot Output Layouts ---
                 col1, col2 = st.columns(2)
                 with col1:
@@ -139,11 +151,11 @@ if uploaded_file is not None:
                     st.pyplot(fig1)
                     
                 with col2:
-                    st.write("### 🎯 Live Model Prediction Map")
+                    st.write(f"### 🎯 Live Model Prediction Map (Smoothed: {smooth_level}x{smooth_level})")
                     fig2, ax2 = plt.subplots(figsize=(5, 5))
                     
-                    # Display segmented predictions cleanly using nipy_spectral
-                    ax2.imshow(output_map, cmap='nipy_spectral')
+                    # Display smoothed predictions cleanly using nipy_spectral
+                    ax2.imshow(final_map, cmap='nipy_spectral')
                     ax2.axis('off')
                     st.pyplot(fig2)
                     
