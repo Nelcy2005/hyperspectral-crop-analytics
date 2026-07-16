@@ -3,6 +3,7 @@ import numpy as np
 import scipy.io as sio
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from scipy.ndimage import median_filter
 
@@ -13,7 +14,7 @@ st.title("🛰️ Deep Hyperspectral Crop & Urban Analytics Pipeline")
 st.write("An adaptive feature selection engine and universal 3D-CNN classifier for diverse remote sensing domains.")
 st.markdown("---")
 
-# --- Define the High-Precision Deep 3D-CNN Architecture ---
+# --- Define High-Precision Deep 3D-CNN Architecture ---
 class HighPrecision3DCNN(nn.Module):
     def __init__(self, num_classes=16, input_bands=100):
         super(HighPrecision3DCNN, self).__init__()
@@ -50,7 +51,7 @@ class HighPrecision3DCNN(nn.Module):
         x = self.fc(x)
         return x
         
-# --- Cache Core Weights ---
+# --- Cache Model Weights ---
 @st.cache_resource
 def load_universal_engine():
     model = HighPrecision3DCNN(num_classes=16, input_bands=100)
@@ -64,17 +65,18 @@ def load_universal_engine():
 
 model = load_universal_engine()
 
-# --- Interactive Sidebar Filter Control ---
-st.sidebar.subheader("🎛️ Post-Processing Controls")
-smooth_level = st.sidebar.slider("Spatial Smoothing Filter (Median Window)", min_value=1, max_value=7, value=3, step=2)
-mask_threshold = st.sidebar.slider("Background Noise Masking Sensitivity", min_value=0.0, max_value=0.2, value=0.05, step=0.01)
+# --- Interactive Sidebar Controls ---
+st.sidebar.subheader("🎛️ Live Map Controls")
+conf_threshold = st.sidebar.slider("Confidence Cutoff Threshold (%)", min_value=30, max_value=95, value=65, step=5,
+                                  help="Higher values clean up messy background noise.")
+smooth_level = st.sidebar.slider("Spatial Smoothing (Median Window)", min_value=1, max_value=7, value=3, step=2)
 
 # --- Dashboard Layout ---
 st.subheader("📊 Live Field Inference Engine")
 uploaded_file = st.file_uploader("Drop ANY raw hyperspectral .mat file here (Salinas, PaviaU, Botswana, Indian Pines)", type="mat")
 
 if uploaded_file is not None:
-    with st.spinner("Processing multidimensional tensor bands dynamically..."):
+    with st.spinner("Executing probability-masked spatial inference..."):
         raw_mat = sio.loadmat(uploaded_file)
         possible_keys = [k for k in raw_mat.keys() if not k.startswith('__')]
         
@@ -89,18 +91,14 @@ if uploaded_file is not None:
                 img_min, img_max = img_cube.min(), img_cube.max()
                 img_normalized = (img_cube - img_min) / (img_max - img_min)
                 
-                # 2. Compute background energy mask
-                pixel_energy = np.mean(img_normalized, axis=2)
-                background_mask = pixel_energy < mask_threshold
-                
-                # 3. Apply Sliding Window Padding
+                # 2. Apply Sliding Window Padding (5x5 spatial window)
                 window_size = 5
                 margin = window_size // 2
                 X_padded = np.pad(img_normalized, ((margin, margin), (margin, margin), (0, 0)), mode='constant')
                 
                 output_map = np.zeros((H, W))
                 
-                # 4. Batch Inference Pipeline
+                # 3. Batch Inference Pipeline with Softmax Confidence
                 batch_size = 512  
                 patches_accumulator = []
                 coords_accumulator = []
@@ -115,14 +113,22 @@ if uploaded_file is not None:
                             
                             if len(patches_accumulator) == batch_size:
                                 row_array = np.array(patches_accumulator)
-                                row_array = np.expand_dims(row_array, axis=1)
+                                row_array = np.expand_dims(row_array, axis=1) # [Batch, 1, Bands, H, W]
                                 row_tensor = torch.tensor(row_array, dtype=torch.float32)
                                 
-                                predictions = model(row_tensor)
-                                pred_classes = torch.argmax(predictions, dim=1).numpy() + 1 # Class 1 to 16
+                                logits = model(row_tensor)
+                                probs = F.softmax(logits, dim=1) # Compute probability distribution
+                                max_probs, pred_classes = torch.max(probs, dim=1)
+                                
+                                max_probs = max_probs.numpy()
+                                pred_classes = pred_classes.numpy() + 1 # Shift to 1-16
                                 
                                 for i, (pr, pc) in enumerate(coords_accumulator):
-                                    output_map[pr, pc] = pred_classes[i]
+                                    # Mask out predictions that fall below confidence cutoff
+                                    if max_probs[i] >= (conf_threshold / 100.0):
+                                        output_map[pr, pc] = pred_classes[i]
+                                    else:
+                                        output_map[pr, pc] = 0 # Mark as clean background
                                     
                                 patches_accumulator = []
                                 coords_accumulator = []
@@ -131,21 +137,27 @@ if uploaded_file is not None:
                         row_array = np.array(patches_accumulator)
                         row_array = np.expand_dims(row_array, axis=1)
                         row_tensor = torch.tensor(row_array, dtype=torch.float32)
-                        predictions = model(row_tensor)
-                        pred_classes = torch.argmax(predictions, dim=1).numpy() + 1
+                        
+                        logits = model(row_tensor)
+                        probs = F.softmax(logits, dim=1)
+                        max_probs, pred_classes = torch.max(probs, dim=1)
+                        
+                        max_probs = max_probs.numpy()
+                        pred_classes = pred_classes.numpy() + 1
+                        
                         for i, (pr, pc) in enumerate(coords_accumulator):
-                            output_map[pr, pc] = pred_classes[i]
+                            if max_probs[i] >= (conf_threshold / 100.0):
+                                output_map[pr, pc] = pred_classes[i]
+                            else:
+                                output_map[pr, pc] = 0
                 
-                # Apply background masking (Set background to 0)
-                output_map[background_mask] = 0
-                
-                # --- Apply Spatial Median Filter for Visual Smoothing ---
+                # --- Apply Spatial Median Filter ---
                 if smooth_level > 1:
                     final_map = median_filter(output_map, size=smooth_level)
                 else:
                     final_map = output_map
 
-                # Mask out 0 for plotting so background renders as clean black/nan
+                # Set unclassified background pixels (0) to NaN so they plot as black space
                 plotted_map = np.where(final_map == 0, np.nan, final_map)
 
                 # --- Plot Output Layouts ---
@@ -158,14 +170,14 @@ if uploaded_file is not None:
                     st.pyplot(fig1)
                     
                 with col2:
-                    st.write(f"### 🎯 Live Model Prediction Map")
+                    st.write(f"### 🎯 Live Model Prediction Map (Cleaned)")
                     fig2, ax2 = plt.subplots(figsize=(5, 5), facecolor='black')
                     ax2.set_facecolor('black')
                     ax2.imshow(plotted_map, cmap='nipy_spectral')
                     ax2.axis('off')
                     st.pyplot(fig2)
                     
-                st.success(f"🎉 Universal evaluation complete across all {C} bands!")
+                st.success(f"🎉 Evaluation complete across all {C} bands!")
             else:
                 st.error(f"Expected a 3D data cube matrix volume. Received shape instead: {img_cube.shape}")
         else:
