@@ -12,16 +12,16 @@ st.title("🛰️ Deep Hyperspectral Crop & Urban Analytics Pipeline")
 st.write("An adaptive feature selection engine and universal 3D-CNN classifier for diverse remote sensing domains.")
 st.markdown("---")
 
-# --- Define the High-Precision Deep 3D-CNN Architecture (Matches Training Engine) ---
+# --- Define the High-Precision Deep 3D-CNN Architecture ---
 class HighPrecision3DCNN(nn.Module):
-    def __init__(self, num_classes=16):
+    def __init__(self, num_classes=16, input_bands=100):
         super(HighPrecision3DCNN, self).__init__()
         
-        # Pointwise Convolution
-        self.feature_projection = nn.Conv3d(1, 1, kernel_size=(1, 1, 1)) 
+        # Pointwise Convolution matching trained checkpoint shape exactly [1, 1, 100, 1, 1]
+        self.feature_projection = nn.Conv3d(1, 1, kernel_size=(input_bands, 1, 1)) 
         self.target_bands = 15
         
-        # Deeper Feature Extractors matching the training engine
+        # Deeper Feature Extractors matching trained weights
         self.conv1 = nn.Conv3d(1, 16, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.bn1 = nn.BatchNorm3d(16)
         
@@ -40,10 +40,9 @@ class HighPrecision3DCNN(nn.Module):
         )
         
     def forward(self, x):
-        incoming_bands = x.shape[2]
-        if self.feature_projection.kernel_size[0] != incoming_bands:
-            self.feature_projection = nn.Conv3d(1, 1, kernel_size=(incoming_bands, 1, 1), device=x.device)
-            nn.init.constant_(self.feature_projection.weight, 1.0 / incoming_bands)
+        # Dynamically interpolate variable dataset bands to standardized 100 spectral bands
+        if x.shape[2] != 100:
+            x = torch.nn.functional.interpolate(x, size=(100, x.shape[3], x.shape[4]), mode='trilinear', align_corners=False)
             
         x = self.relu(self.feature_projection(x))
         x = torch.nn.functional.interpolate(x, size=(self.target_bands, 5, 5), mode='trilinear', align_corners=False)
@@ -56,7 +55,7 @@ class HighPrecision3DCNN(nn.Module):
 # --- Cache Core Weights ---
 @st.cache_resource
 def load_universal_engine():
-    model = HighPrecision3DCNN(num_classes=16)
+    model = HighPrecision3DCNN(num_classes=16, input_bands=100)
     try:
         model.load_state_dict(torch.load('hyperspectral_model.pth', map_location=torch.device('cpu')), strict=True)
         st.sidebar.success("🛰️ Global Network Weights Active")
@@ -103,13 +102,13 @@ if uploaded_file is not None:
                     for r in range(H):
                         for c in range(W):
                             patch = X_padded[r:r + window_size, c:c + window_size, :]
-                            patch = patch.transpose(2, 0, 1) # Format to channel-first [Bands, Height, Width]
+                            patch = patch.transpose(2, 0, 1) # [Bands, Height, Width]
                             patches_accumulator.append(patch)
                             coords_accumulator.append((r, c))
                             
                             if len(patches_accumulator) == batch_size:
                                 row_array = np.array(patches_accumulator)
-                                row_array = np.expand_dims(row_array, axis=1)
+                                row_array = np.expand_dims(row_array, axis=1) # [Batch, 1, Bands, H, W]
                                 row_tensor = torch.tensor(row_array, dtype=torch.float32)
                                 
                                 predictions = model(row_tensor)
