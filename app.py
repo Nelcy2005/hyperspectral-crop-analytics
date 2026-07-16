@@ -18,11 +18,9 @@ class HighPrecision3DCNN(nn.Module):
     def __init__(self, num_classes=16, input_bands=100):
         super(HighPrecision3DCNN, self).__init__()
         
-        # Pointwise Convolution matching trained checkpoint shape exactly [1, 1, 100, 1, 1]
         self.feature_projection = nn.Conv3d(1, 1, kernel_size=(input_bands, 1, 1)) 
         self.target_bands = 15
         
-        # Deeper Feature Extractors matching trained weights
         self.conv1 = nn.Conv3d(1, 16, kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.bn1 = nn.BatchNorm3d(16)
         
@@ -41,7 +39,6 @@ class HighPrecision3DCNN(nn.Module):
         )
         
     def forward(self, x):
-        # Dynamically interpolate variable dataset bands to standardized 100 spectral bands
         if x.shape[2] != 100:
             x = torch.nn.functional.interpolate(x, size=(100, x.shape[3], x.shape[4]), mode='trilinear', align_corners=False)
             
@@ -69,8 +66,8 @@ model = load_universal_engine()
 
 # --- Interactive Sidebar Filter Control ---
 st.sidebar.subheader("🎛️ Post-Processing Controls")
-smooth_level = st.sidebar.slider("Spatial Smoothing Filter (Median Window)", min_value=1, max_value=7, value=3, step=2, 
-                                 help="Set to 1 for raw pixel predictions, or 3/5 for smooth spatial maps.")
+smooth_level = st.sidebar.slider("Spatial Smoothing Filter (Median Window)", min_value=1, max_value=7, value=3, step=2)
+mask_threshold = st.sidebar.slider("Background Noise Masking Sensitivity", min_value=0.0, max_value=0.2, value=0.05, step=0.01)
 
 # --- Dashboard Layout ---
 st.subheader("📊 Live Field Inference Engine")
@@ -92,14 +89,18 @@ if uploaded_file is not None:
                 img_min, img_max = img_cube.min(), img_cube.max()
                 img_normalized = (img_cube - img_min) / (img_max - img_min)
                 
-                # 2. Apply Sliding Window Padding (5x5 spatial processing matrix)
+                # 2. Compute background energy mask
+                pixel_energy = np.mean(img_normalized, axis=2)
+                background_mask = pixel_energy < mask_threshold
+                
+                # 3. Apply Sliding Window Padding
                 window_size = 5
                 margin = window_size // 2
                 X_padded = np.pad(img_normalized, ((margin, margin), (margin, margin), (0, 0)), mode='constant')
                 
                 output_map = np.zeros((H, W))
                 
-                # 3. Batch Inference Pipeline
+                # 4. Batch Inference Pipeline
                 batch_size = 512  
                 patches_accumulator = []
                 coords_accumulator = []
@@ -114,11 +115,11 @@ if uploaded_file is not None:
                             
                             if len(patches_accumulator) == batch_size:
                                 row_array = np.array(patches_accumulator)
-                                row_array = np.expand_dims(row_array, axis=1) # [Batch, 1, Bands, H, W]
+                                row_array = np.expand_dims(row_array, axis=1)
                                 row_tensor = torch.tensor(row_array, dtype=torch.float32)
                                 
                                 predictions = model(row_tensor)
-                                pred_classes = torch.argmax(predictions, dim=1).numpy()
+                                pred_classes = torch.argmax(predictions, dim=1).numpy() + 1 # Class 1 to 16
                                 
                                 for i, (pr, pc) in enumerate(coords_accumulator):
                                     output_map[pr, pc] = pred_classes[i]
@@ -131,15 +132,21 @@ if uploaded_file is not None:
                         row_array = np.expand_dims(row_array, axis=1)
                         row_tensor = torch.tensor(row_array, dtype=torch.float32)
                         predictions = model(row_tensor)
-                        pred_classes = torch.argmax(predictions, dim=1).numpy()
+                        pred_classes = torch.argmax(predictions, dim=1).numpy() + 1
                         for i, (pr, pc) in enumerate(coords_accumulator):
                             output_map[pr, pc] = pred_classes[i]
+                
+                # Apply background masking (Set background to 0)
+                output_map[background_mask] = 0
                 
                 # --- Apply Spatial Median Filter for Visual Smoothing ---
                 if smooth_level > 1:
                     final_map = median_filter(output_map, size=smooth_level)
                 else:
                     final_map = output_map
+
+                # Mask out 0 for plotting so background renders as clean black/nan
+                plotted_map = np.where(final_map == 0, np.nan, final_map)
 
                 # --- Plot Output Layouts ---
                 col1, col2 = st.columns(2)
@@ -151,11 +158,10 @@ if uploaded_file is not None:
                     st.pyplot(fig1)
                     
                 with col2:
-                    st.write(f"### 🎯 Live Model Prediction Map (Smoothed: {smooth_level}x{smooth_level})")
-                    fig2, ax2 = plt.subplots(figsize=(5, 5))
-                    
-                    # Display smoothed predictions cleanly using nipy_spectral
-                    ax2.imshow(final_map, cmap='nipy_spectral')
+                    st.write(f"### 🎯 Live Model Prediction Map")
+                    fig2, ax2 = plt.subplots(figsize=(5, 5), facecolor='black')
+                    ax2.set_facecolor('black')
+                    ax2.imshow(plotted_map, cmap='nipy_spectral')
                     ax2.axis('off')
                     st.pyplot(fig2)
                     
